@@ -1,18 +1,14 @@
-# 🚀 Sky Hopper – Handy-Spiel
+# 🎮 Mini-Spielesammlung
 
-Ein flüssiges Tap-Spiel (im Stil von Flappy Bird) für das Handy – läuft direkt
-im Browser, ohne Installation.
+Kleine Handy-Spiele, die direkt im Browser laufen – ohne Installation.
 
-## Spielen
-1. `index.html` im Handy-Browser öffnen (oder per GitHub Pages bereitstellen).
-2. Auf den Bildschirm **tippen**, damit die Rakete steigt.
-3. Durch die Lücken fliegen, ohne anzustoßen. Jede Lücke = 1 Punkt.
+**▶️ Live spielen:** https://henninghans07.github.io/test/
 
-## Features
-- 📱 Touch-Steuerung, optimiert für alle Bildschirmgrößen
-- 🏆 Highscore wird lokal gespeichert
-- 📳 Vibration bei Game Over
-- 🎨 Animierte Grafik (Sternenhimmel, Rakete mit Flamme)
+## Spiele
+- **🚀 Sky Hopper** (`skyhopper.html`) – Tippen, um die Rakete durch die Lücken zu fliegen (Flappy-Bird-Stil)
+- **🔢 2048** (`2048.html`) – Kacheln zusammenwischen, bis du 2048 erreichst
 
-## Als App nutzen
-Im Handy-Browser über "Zum Startbildschirm hinzufügen" als Vollbild-App speichern.
+Die Startseite (`index.html`) ist ein Menü zur Auswahl der Spiele.
+
+## Auf dem iPhone als App nutzen
+Link in Safari öffnen → **Teilen → „Zum Home-Bildschirm"** → läuft im Vollbild wie eine echte App.

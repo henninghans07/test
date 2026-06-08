@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Sky Hopper 🚀</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    height: 100%;
+    overflow: hidden;
+    background: #1a1a2e;
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    overscroll-behavior: none;
+    touch-action: manipulation;
+  }
+  #game-wrap {
+    position: fixed;
+    inset: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  canvas {
+    display: block;
+    width: 100%;
+    height: 100%;
+    touch-action: none;
+  }
+  .overlay {
+    position: absolute;
+    inset: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    color: #fff;
+    gap: 18px;
+    padding: 24px;
+    background: rgba(26, 26, 46, 0.55);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    transition: opacity 0.25s;
+  }
+  .overlay.hidden { opacity: 0; pointer-events: none; }
+  .title {
+    font-size: clamp(34px, 11vw, 64px);
+    font-weight: 800;
+    letter-spacing: 1px;
+    text-shadow: 0 4px 24px rgba(0,0,0,0.5);
+    background: linear-gradient(90deg, #ffd166, #ff6b6b, #4ecdc4);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .sub { font-size: clamp(15px, 4.5vw, 20px); opacity: 0.9; line-height: 1.5; max-width: 360px; }
+  .btn {
+    margin-top: 6px;
+    padding: 16px 40px;
+    font-size: clamp(18px, 5.5vw, 24px);
+    font-weight: 700;
+    color: #1a1a2e;
+    background: linear-gradient(135deg, #ffd166, #ff9f43);
+    border: none;
+    border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(255, 159, 67, 0.4);
+    cursor: pointer;
+    transition: transform 0.1s;
+  }
+  .btn:active { transform: scale(0.94); }
+  .stat { font-size: clamp(18px, 5.5vw, 26px); font-weight: 700; }
+  .stat span { color: #ffd166; }
+  .pill {
+    display: inline-block;
+    padding: 6px 16px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.12);
+    font-size: 14px;
+    margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+<div id="game-wrap">
+  <canvas id="c"></canvas>
+
+  <div id="start" class="overlay">
+    <div class="title">Sky Hopper</div>
+    <div class="sub">Tippe auf den Bildschirm, damit die Rakete steigt.<br>Fliege durch die Lücken – nicht anstoßen! 🚀</div>
+    <div class="pill">🏆 Highscore: <b id="hs-start">0</b></div>
+    <button class="btn" id="play-btn">Spielen</button>
+  </div>
+
+  <div id="over" class="overlay hidden">
+    <div class="title">Game Over</div>
+    <div class="stat">Punkte: <span id="final-score">0</span></div>
+    <div class="stat">Best: <span id="final-best">0</span></div>
+    <div id="new-best" class="pill" style="display:none;">✨ Neuer Rekord!</div>
+    <button class="btn" id="retry-btn">Nochmal</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('c');
+  const ctx = canvas.getContext('2d');
+
+  // --- Screens ---
+  const startScreen = document.getElementById('start');
+  const overScreen = document.getElementById('over');
+  const playBtn = document.getElementById('play-btn');
+  const retryBtn = document.getElementById('retry-btn');
+  const finalScoreEl = document.getElementById('final-score');
+  const finalBestEl = document.getElementById('final-best');
+  const newBestEl = document.getElementById('new-best');
+  const hsStartEl = document.getElementById('hs-start');
+
+  // --- World sizing (logical units, scaled to device) ---
+  let W = 0, H = 0, DPR = 1;
+  function resize() {
+    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    W = window.innerWidth;
+    H = window.innerHeight;
+    canvas.width = W * DPR;
+    canvas.height = H * DPR;
+    canvas.style.width = W + 'px';
+    canvas.style.height = H + 'px';
+    ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  }
+  window.addEventListener('resize', resize);
+  resize();
+
+  // --- Persistent highscore ---
+  const HS_KEY = 'skyhopper_highscore';
+  let highscore = parseInt(localStorage.getItem(HS_KEY) || '0', 10) || 0;
+  hsStartEl.textContent = highscore;
+
+  // --- Game state ---
+  const STATE = { MENU: 0, PLAY: 1, OVER: 2 };
+  let state = STATE.MENU;
+
+  const bird = { x: 0, y: 0, r: 16, vy: 0 };
+  let pipes = [];
+  let score = 0;
+  let frame = 0;
+  let stars = [];
+
+  // tuned to be scaled by screen height so difficulty feels equal on all phones
+  function cfg() {
+    const gap = Math.max(200, H * 0.36);
+    return {
+      gravity: H * 0.0014,
+      flap: -H * 0.011,
+      pipeW: Math.max(56, W * 0.16),
+      gap,
+      speed: Math.max(2.4, W * 0.006),
+      spacing: Math.max(230, W * 0.62),
+    };
+  }
+  let C = cfg();
+
+  function makeStars() {
+    stars = [];
+    const n = Math.round((W * H) / 14000);
+    for (let i = 0; i < n; i++) {
+      stars.push({
+        x: Math.random() * W,
+        y: Math.random() * H,
+        r: Math.random() * 1.6 + 0.4,
+        s: Math.random() * 0.4 + 0.1,
+      });
+    }
+  }
+  makeStars();
+
+  function reset() {
+    C = cfg();
+    bird.x = W * 0.28;
+    bird.y = H * 0.45;
+    bird.r = Math.max(14, Math.min(W, H) * 0.035);
+    bird.vy = 0;
+    pipes = [];
+    score = 0;
+    frame = 0;
+    // pre-fill first pipe ahead
+    spawnPipe(W + 80);
+  }
+
+  function spawnPipe(x) {
+    const margin = C.gap / 2 + 40;
+    const cy = margin + Math.random() * (H - margin * 2);
+    pipes.push({ x, cy, scored: false });
+  }
+
+  function flap() {
+    if (state === STATE.PLAY) {
+      bird.vy = C.flap;
+    }
+  }
+
+  function startGame() {
+    reset();
+    state = STATE.PLAY;
+    startScreen.classList.add('hidden');
+    overScreen.classList.add('hidden');
+    bird.vy = C.flap; // initial little hop
+  }
+
+  function gameOver() {
+    state = STATE.OVER;
+    const isBest = score > highscore;
+    if (isBest) {
+      highscore = score;
+      localStorage.setItem(HS_KEY, String(highscore));
+    }
+    finalScoreEl.textContent = score;
+    finalBestEl.textContent = highscore;
+    hsStartEl.textContent = highscore;
+    newBestEl.style.display = isBest && score > 0 ? 'inline-block' : 'none';
+    overScreen.classList.remove('hidden');
+    if (navigator.vibrate) navigator.vibrate(80);
+  }
+
+  // --- Input ---
+  function onPress(e) {
+    e.preventDefault();
+    if (state === STATE.PLAY) flap();
+  }
+  canvas.addEventListener('touchstart', onPress, { passive: false });
+  canvas.addEventListener('mousedown', onPress);
+  window.addEventListener('keydown', (e) => {
+    if (e.code === 'Space' || e.code === 'ArrowUp') {
+      e.preventDefault();
+      if (state === STATE.MENU) startGame();
+      else if (state === STATE.PLAY) flap();
+      else if (state === STATE.OVER) startGame();
+    }
+  });
+  playBtn.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
+  retryBtn.addEventListener('click', (e) => { e.stopPropagation(); startGame(); });
+
+  // --- Update ---
+  function update() {
+    frame++;
+    bird.vy += C.gravity;
+    bird.y += bird.vy;
+
+    // spawn pipes by spacing
+    const last = pipes[pipes.length - 1];
+    if (!last || last.x < W - C.spacing) {
+      spawnPipe(W + C.pipeW);
+    }
+
+    for (let i = pipes.length - 1; i >= 0; i--) {
+      const p = pipes[i];
+      p.x -= C.speed;
+
+      if (!p.scored && p.x + C.pipeW < bird.x) {
+        p.scored = true;
+        score++;
+      }
+      if (p.x + C.pipeW < -10) pipes.splice(i, 1);
+
+      // collision
+      const inX = bird.x + bird.r > p.x && bird.x - bird.r < p.x + C.pipeW;
+      if (inX) {
+        const topB = p.cy - C.gap / 2;
+        const botB = p.cy + C.gap / 2;
+        if (bird.y - bird.r < topB || bird.y + bird.r > botB) {
+          gameOver();
+        }
+      }
+    }
+
+    // floor / ceiling
+    if (bird.y + bird.r > H || bird.y - bird.r < 0) {
+      bird.y = Math.max(bird.r, Math.min(H - bird.r, bird.y));
+      gameOver();
+    }
+  }
+
+  // --- Render ---
+  function drawBackground() {
+    const g = ctx.createLinearGradient(0, 0, 0, H);
+    g.addColorStop(0, '#16213e');
+    g.addColorStop(1, '#0f3460');
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.fillStyle = '#ffffff';
+    for (const s of stars) {
+      if (state === STATE.PLAY) s.x -= s.s;
+      if (s.x < 0) { s.x = W; s.y = Math.random() * H; }
+      ctx.globalAlpha = 0.5 + s.r / 4;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
+  }
+
+  function roundRect(x, y, w, h, r) {
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.arcTo(x + w, y, x + w, y + h, r);
+    ctx.arcTo(x + w, y + h, x, y + h, r);
+    ctx.arcTo(x, y + h, x, y, r);
+    ctx.arcTo(x, y, x + w, y, r);
+    ctx.closePath();
+  }
+
+  function drawPipes() {
+    for (const p of pipes) {
+      const topH = p.cy - C.gap / 2;
+      const botY = p.cy + C.gap / 2;
+      const grad = ctx.createLinearGradient(p.x, 0, p.x + C.pipeW, 0);
+      grad.addColorStop(0, '#43e97b');
+      grad.addColorStop(1, '#38f9d7');
+      ctx.fillStyle = grad;
+      // top
+      roundRect(p.x, 0, C.pipeW, topH, 10);
+      ctx.fill();
+      // bottom
+      roundRect(p.x, botY, C.pipeW, H - botY, 10);
+      ctx.fill();
+      // rims
+      ctx.fillStyle = 'rgba(255,255,255,0.18)';
+      roundRect(p.x, topH - 16, C.pipeW, 16, 6);
+      ctx.fill();
+      roundRect(p.x, botY, C.pipeW, 16, 6);
+      ctx.fill();
+    }
+  }
+
+  function drawBird() {
+    ctx.save();
+    ctx.translate(bird.x, bird.y);
+    const tilt = Math.max(-0.5, Math.min(1.1, bird.vy / 12));
+    ctx.rotate(tilt);
+
+    // flame
+    if (state === STATE.PLAY) {
+      ctx.fillStyle = frame % 6 < 3 ? '#ff6b6b' : '#ffd166';
+      ctx.beginPath();
+      ctx.moveTo(-bird.r, -bird.r * 0.4);
+      ctx.lineTo(-bird.r - bird.r * (0.8 + Math.random() * 0.5), 0);
+      ctx.lineTo(-bird.r, bird.r * 0.4);
+      ctx.closePath();
+      ctx.fill();
+    }
+
+    // body
+    const bg = ctx.createLinearGradient(-bird.r, 0, bird.r, 0);
+    bg.addColorStop(0, '#ff9f43');
+    bg.addColorStop(1, '#ffd166');
+    ctx.fillStyle = bg;
+    roundRect(-bird.r, -bird.r * 0.7, bird.r * 2, bird.r * 1.4, bird.r * 0.6);
+    ctx.fill();
+
+    // nose
+    ctx.fillStyle = '#ff6b6b';
+    ctx.beginPath();
+    ctx.moveTo(bird.r, -bird.r * 0.5);
+    ctx.lineTo(bird.r + bird.r * 0.7, 0);
+    ctx.lineTo(bird.r, bird.r * 0.5);
+    ctx.closePath();
+    ctx.fill();
+
+    // window
+    ctx.fillStyle = '#16213e';
+    ctx.beginPath();
+    ctx.arc(bird.r * 0.1, 0, bird.r * 0.4, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = '#4ecdc4';
+    ctx.beginPath();
+    ctx.arc(bird.r * 0.1, 0, bird.r * 0.26, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.restore();
+  }
+
+  function drawScore() {
+    if (state !== STATE.PLAY) return;
+    ctx.fillStyle = '#fff';
+    ctx.font = '800 ' + Math.round(Math.min(W, H) * 0.11) + 'px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'top';
+    ctx.shadowColor = 'rgba(0,0,0,0.4)';
+    ctx.shadowBlur = 12;
+    ctx.fillText(score, W / 2, H * 0.06);
+    ctx.shadowBlur = 0;
+  }
+
+  // --- Loop ---
+  function loop() {
+    if (state === STATE.PLAY) update();
+    drawBackground();
+    drawPipes();
+    drawBird();
+    drawScore();
+    requestAnimationFrame(loop);
+  }
+  loop();
+
+  window.addEventListener('resize', () => { makeStars(); if (state !== STATE.PLAY) { bird.x = W * 0.28; bird.y = H * 0.45; } });
+})();
+</script>
+</body>
+</html>
