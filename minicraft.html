@@ -9,7 +9,7 @@
 <style>
   *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
   html,body{width:100%;height:100%;overflow:hidden;background:#3a9fd8;touch-action:none}
-  canvas{display:block;width:100%;height:100%;position:fixed;inset:0}
+  canvas{display:block;width:100%;height:100%;position:fixed;inset:0;touch-action:none}
   #hud{position:fixed;inset:0;pointer-events:none}
   #topbar{
     display:flex;align-items:center;justify-content:space-between;
@@ -47,7 +47,8 @@
     background:rgba(0,0,0,.45);border:2px solid rgba(255,255,255,.25);
     border-radius:12px;color:#fff;font-size:26px;
     display:flex;align-items:center;justify-content:center;
-    cursor:pointer;pointer-events:all;-webkit-user-select:none;user-select:none;
+    cursor:pointer;pointer-events:all;
+    -webkit-user-select:none;user-select:none;touch-action:none;
   }
   #ctrl-left{left:10px}
   #ctrl-right{left:84px}
@@ -58,7 +59,7 @@
     background:rgba(30,100,200,.5);border:2px solid rgba(255,255,255,.3);
     border-radius:50%;color:#fff;font-size:28px;
     display:flex;align-items:center;justify-content:center;
-    cursor:pointer;pointer-events:all;
+    cursor:pointer;pointer-events:all;touch-action:none;
   }
   #ctrl-left:active,#ctrl-right:active{background:rgba(255,255,255,.3)}
   #ctrl-jump:active{background:rgba(80,160,255,.7)}
@@ -162,8 +163,10 @@ let camX = 0, camY = 0;
 let running = false, lastTs = 0;
 
 const keys = { left:false, right:false };
-let mineTarget = null; // {wx,wy,t,total}
-let mineTouchId = -1;
+// worldPtr tracks the one active world-interaction pointer (mine or place).
+// Movement buttons use separate pointer IDs and don't interfere.
+let worldPtr  = null; // { pid, mode:'mine'|'place', wx, wy, t, total, sx, sy }
+let mineTarget = null; // synced from worldPtr; used only for rendering
 
 const hotbar = Array.from({length:7}, () => ({id:B.AIR, count:0}));
 let selSlot = 0;
@@ -295,10 +298,16 @@ function update(dt) {
   camX = Math.max(0, Math.min(WORLD_W*T-W, camX));
   camY = Math.max(0, Math.min(WORLD_H*T-H, camY));
 
-  // mining tick
-  if(mineTarget) {
-    mineTarget.t += dt;
-    if(mineTarget.t >= mineTarget.total) doBreak(mineTarget.wx, mineTarget.wy), mineTarget=null;
+  // mine tick — progress lives in worldPtr; mineTarget just mirrors it for the renderer
+  if(worldPtr && worldPtr.mode==='mine'){
+    worldPtr.t += dt;
+    mineTarget = worldPtr;
+    if(worldPtr.t >= worldPtr.total){
+      doBreak(worldPtr.wx, worldPtr.wy);
+      worldPtr = null; mineTarget = null;
+    }
+  } else if(!worldPtr){
+    mineTarget = null;
   }
 }
 
@@ -334,14 +343,6 @@ function sw2w(sx,sy){ return {wx:Math.floor((sx+camX)/T), wy:Math.floor((sy+camY
 function nearPlayer(wx,wy){
   const px=Math.floor(player.x/T), py=Math.floor(player.y/T);
   return Math.abs(wx-px)<=5 && Math.abs(wy-py)<=5;
-}
-
-function startMine(wx,wy){
-  if(!nearPlayer(wx,wy)) return;
-  const id=gb(wx,wy);
-  if(id===B.AIR) return;
-  const d=BDATA[id]; if(!d||!isFinite(d.hard)) return;
-  mineTarget={wx,wy,t:0,total:d.hard};
 }
 
 function doBreak(wx,wy){
@@ -548,7 +549,7 @@ function drawPlayer(){
 let hoverWX=-1, hoverWY=-1;
 
 function draw(){
-  canvas.width=W; canvas.height=H; // clears & sizes
+  ctx.clearRect(0,0,W,H);
   drawSky();
   drawWorld();
   drawPlayer();
@@ -583,83 +584,100 @@ function rebuildUI(){
 // ─────────────────────────────────────────────
 // INPUT
 // ─────────────────────────────────────────────
+function doJump(){
+  if(player.onGround){ player.vy=JUMP; player.onGround=false; }
+}
+
 function setupInput(){
-  // keyboard
-  window.addEventListener('keydown',e=>{
-    if(e.key==='ArrowLeft'||e.key==='a') keys.left=true;
+  // ── Keyboard ──────────────────────────────
+  window.addEventListener('keydown', e=>{
+    if(e.key==='ArrowLeft' ||e.key==='a') keys.left=true;
     if(e.key==='ArrowRight'||e.key==='d') keys.right=true;
-    if((e.key===' '||e.key==='ArrowUp'||e.key==='w')&&player.onGround){
-      player.vy=JUMP; player.onGround=false;
-    }
+    if(e.key===' '||e.key==='ArrowUp'||e.key==='w') doJump();
     if(e.key>='1'&&e.key<='7'){ selSlot=+e.key-1; rebuildUI(); }
+    if(e.key===' ') e.preventDefault(); // stop page scroll
   });
-  window.addEventListener('keyup',e=>{
-    if(e.key==='ArrowLeft'||e.key==='a') keys.left=false;
+  window.addEventListener('keyup', e=>{
+    if(e.key==='ArrowLeft' ||e.key==='a') keys.left=false;
     if(e.key==='ArrowRight'||e.key==='d') keys.right=false;
   });
-  window.addEventListener('mousemove',e=>{
-    const {wx,wy}=sw2w(e.clientX,e.clientY);
-    hoverWX=wx; hoverWY=wy;
+  // Desktop hover highlight
+  window.addEventListener('mousemove', e=>{
+    const {wx,wy}=sw2w(e.clientX,e.clientY); hoverWX=wx; hoverWY=wy;
   });
 
-  // control buttons
-  function holdKey(el,k){
-    el.addEventListener('pointerdown',e=>{ e.stopPropagation(); e.preventDefault(); keys[k]=true; });
-    el.addEventListener('pointerup',()=>keys[k]=false);
-    el.addEventListener('pointerleave',()=>keys[k]=false);
+  // ── Movement buttons ──────────────────────
+  // setPointerCapture guarantees pointerup/cancel always fire on this element,
+  // even if the finger slides off — so keys never get stuck.
+  function setupBtn(id, onPress, onRelease){
+    const el=document.getElementById(id);
+    el.addEventListener('pointerdown', e=>{
+      e.stopPropagation(); e.preventDefault();
+      el.setPointerCapture(e.pointerId);
+      onPress();
+    });
+    const release = ()=>{ onRelease && onRelease(); };
+    el.addEventListener('pointerup',           release);
+    el.addEventListener('pointercancel',       release);
+    el.addEventListener('lostpointercapture',  release);
   }
-  holdKey(document.getElementById('ctrl-left'),'left');
-  holdKey(document.getElementById('ctrl-right'),'right');
+  setupBtn('ctrl-left',  ()=>keys.left=true,  ()=>keys.left=false);
+  setupBtn('ctrl-right', ()=>keys.right=true, ()=>keys.right=false);
+  setupBtn('ctrl-jump',  ()=>doJump(),         null);
 
-  const jb=document.getElementById('ctrl-jump');
-  jb.addEventListener('pointerdown',e=>{ e.stopPropagation(); e.preventDefault(); if(player.onGround){ player.vy=JUMP; player.onGround=false; } });
-
-  // canvas – mine / place
-  canvas.addEventListener('pointerdown', onDown);
-  canvas.addEventListener('pointermove', onMove);
-  canvas.addEventListener('pointerup', onUp);
-  canvas.addEventListener('pointercancel', onUp);
-  canvas.addEventListener('contextmenu',e=>e.preventDefault());
-  canvas.addEventListener('mousedown',e=>{ if(e.button===2){ const {wx,wy}=sw2w(e.clientX,e.clientY); tryPlace(wx,wy); } });
-}
-
-let pointerDownPos=null, pointerDownId=-1;
-
-function onDown(e){
-  e.preventDefault();
-  if(pointerDownId!==-1) return;
-  pointerDownId=e.pointerId;
-  const {wx,wy}=sw2w(e.clientX,e.clientY);
-  if(gb(wx,wy)!==B.AIR){
-    mineTouchId=e.pointerId;
-    startMine(wx,wy);
-  } else {
-    pointerDownPos={x:e.clientX,y:e.clientY,wx,wy};
-  }
-}
-
-function onMove(e){
-  e.preventDefault();
-  if(e.pointerId===mineTouchId){
+  // ── Canvas: mine & place ──────────────────
+  // Only one world pointer is tracked at a time.
+  // Movement buttons hold separate pointer IDs — they never conflict.
+  canvas.addEventListener('pointerdown', e=>{
+    e.preventDefault();
+    if(worldPtr) return; // already tracking a world touch
+    canvas.setPointerCapture(e.pointerId);
     const {wx,wy}=sw2w(e.clientX,e.clientY);
-    if(!mineTarget||mineTarget.wx!==wx||mineTarget.wy!==wy){
-      if(gb(wx,wy)!==B.AIR) startMine(wx,wy);
-      else mineTarget=null;
+    const id=gb(wx,wy);
+    if(id!==B.AIR && id!==B.BEDROCK && nearPlayer(wx,wy)){
+      const d=BDATA[id];
+      if(d && isFinite(d.hard))
+        worldPtr={ pid:e.pointerId, mode:'mine', wx, wy, t:0, total:d.hard };
+    } else {
+      // Potential place — confirmed on pointerup if finger barely moved
+      worldPtr={ pid:e.pointerId, mode:'place', wx, wy, sx:e.clientX, sy:e.clientY };
     }
-  }
-}
+  });
 
-function onUp(e){
-  e.preventDefault();
-  if(e.pointerId===mineTouchId){ mineTarget=null; mineTouchId=-1; }
-  if(e.pointerId===pointerDownId){
-    if(pointerDownPos){
-      const dx=Math.abs(e.clientX-pointerDownPos.x);
-      const dy=Math.abs(e.clientY-pointerDownPos.y);
-      if(dx<12&&dy<12) tryPlace(pointerDownPos.wx,pointerDownPos.wy);
+  canvas.addEventListener('pointermove', e=>{
+    if(!worldPtr || e.pointerId!==worldPtr.pid) return;
+    if(worldPtr.mode==='mine'){
+      const {wx,wy}=sw2w(e.clientX,e.clientY);
+      // Switch target only when moving onto a DIFFERENT solid block.
+      // Drifting over air keeps mining the original block.
+      if((wx!==worldPtr.wx || wy!==worldPtr.wy)){
+        const id=gb(wx,wy);
+        if(id!==B.AIR && id!==B.BEDROCK && nearPlayer(wx,wy)){
+          const d=BDATA[id];
+          if(d && isFinite(d.hard))
+            worldPtr={ ...worldPtr, wx, wy, t:0, total:d.hard };
+        }
+      }
     }
-    pointerDownId=-1; pointerDownPos=null;
+  });
+
+  function endWorldPtr(e){
+    if(!worldPtr || e.pointerId!==worldPtr.pid) return;
+    if(worldPtr.mode==='place'){
+      // Place only if finger barely moved (distinguishes tap from scroll)
+      const dx=Math.abs(e.clientX-worldPtr.sx), dy=Math.abs(e.clientY-worldPtr.sy);
+      if(dx<14 && dy<14) tryPlace(worldPtr.wx, worldPtr.wy);
+    }
+    worldPtr=null; mineTarget=null;
   }
+  canvas.addEventListener('pointerup',     endWorldPtr);
+  canvas.addEventListener('pointercancel', endWorldPtr);
+
+  // Desktop: right-click to place
+  canvas.addEventListener('contextmenu', e=>e.preventDefault());
+  canvas.addEventListener('mousedown', e=>{
+    if(e.button===2){ const {wx,wy}=sw2w(e.clientX,e.clientY); tryPlace(wx,wy); }
+  });
 }
 
 // ─────────────────────────────────────────────
@@ -678,6 +696,7 @@ function loop(ts){
 // ─────────────────────────────────────────────
 function resize(){
   W=window.innerWidth; H=window.innerHeight;
+  canvas.width=W; canvas.height=H;
 }
 window.addEventListener('resize',resize);
 resize();
