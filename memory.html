@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#1a1a2e">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<title>Emoji Memory 🧠</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; -webkit-user-select: none; user-select: none; }
+  html, body {
+    min-height: 100%;
+    background: linear-gradient(160deg, #16213e 0%, #0f3460 100%);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #fff;
+    overscroll-behavior: none;
+  }
+  body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    min-height: 100vh;
+    padding: calc(env(safe-area-inset-top) + 14px) 14px calc(env(safe-area-inset-bottom) + 18px);
+  }
+  .topbar { width: 100%; max-width: 520px; display: flex; align-items: center; gap: 12px; margin-bottom: 10px; }
+  .home {
+    width: 40px; height: 40px; flex-shrink: 0;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px; color: #fff; text-decoration: none;
+    background: rgba(255,255,255,0.12); border-radius: 12px;
+  }
+  h1 {
+    font-size: clamp(22px, 6.5vw, 30px);
+    font-weight: 800;
+    background: linear-gradient(90deg, #b388ff, #4ecdc4, #ffd166);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .stats {
+    width: 100%; max-width: 520px;
+    display: flex; justify-content: space-around;
+    background: rgba(255,255,255,0.07);
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 14px;
+    padding: 10px 8px;
+    margin-bottom: 14px;
+  }
+  .stat { text-align: center; }
+  .stat .label { font-size: 11px; opacity: 0.6; text-transform: uppercase; letter-spacing: 1px; }
+  .stat .value { font-size: clamp(18px, 5.5vw, 24px); font-weight: 800; color: #ffd166; }
+
+  #board {
+    width: 100%;
+    max-width: 520px;
+    display: grid;
+    gap: 10px;
+    flex: 1;
+    align-content: center;
+  }
+  .card {
+    position: relative;
+    aspect-ratio: 1 / 1;
+    border-radius: 14px;
+    cursor: pointer;
+    transform-style: preserve-3d;
+    transition: transform 0.35s;
+  }
+  .card.flipped, .card.matched { transform: rotateY(180deg); }
+  .face {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    border-radius: 14px;
+    backface-visibility: hidden;
+    -webkit-backface-visibility: hidden;
+  }
+  .face.back {
+    background: linear-gradient(135deg, #6a3de8, #4ecdc4);
+    font-size: clamp(22px, 7vw, 34px);
+    box-shadow: inset 0 0 0 2px rgba(255,255,255,0.15);
+  }
+  .face.front {
+    background: rgba(255,255,255,0.95);
+    transform: rotateY(180deg);
+    font-size: clamp(28px, 9vw, 46px);
+  }
+  .card.matched .face.front {
+    background: linear-gradient(135deg, #43e97b, #38f9d7);
+    animation: pop 0.4s ease;
+  }
+  @keyframes pop { 0%,100% { transform: rotateY(180deg) scale(1); } 50% { transform: rotateY(180deg) scale(1.12); } }
+
+  /* Overlays */
+  .overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    text-align: center; gap: 16px; padding: 24px;
+    background: rgba(26, 26, 46, 0.7);
+    backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
+    transition: opacity 0.25s;
+  }
+  .overlay.hidden { opacity: 0; pointer-events: none; }
+  .title {
+    font-size: clamp(30px, 9vw, 52px); font-weight: 800;
+    background: linear-gradient(90deg, #b388ff, #4ecdc4, #ffd166);
+    -webkit-background-clip: text; background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .sub { font-size: clamp(15px, 4.5vw, 19px); opacity: 0.9; line-height: 1.5; max-width: 360px; }
+  .diff-row { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+  .diff {
+    padding: 12px 20px; font-size: 16px; font-weight: 700;
+    color: #fff; background: rgba(255,255,255,0.12);
+    border: 2px solid transparent; border-radius: 14px; cursor: pointer;
+    transition: transform 0.1s, border-color 0.2s, background 0.2s;
+  }
+  .diff:active { transform: scale(0.94); }
+  .diff.active { border-color: #4ecdc4; background: rgba(78,205,196,0.2); }
+  .btn {
+    margin-top: 6px; padding: 16px 40px;
+    font-size: clamp(18px, 5.5vw, 24px); font-weight: 700;
+    color: #0f3460;
+    background: linear-gradient(135deg, #b388ff, #4ecdc4);
+    border: none; border-radius: 999px;
+    box-shadow: 0 8px 24px rgba(78,205,196,0.35);
+    cursor: pointer; transition: transform 0.1s;
+  }
+  .btn:active { transform: scale(0.94); }
+  .pill {
+    display: inline-block; padding: 6px 16px; border-radius: 999px;
+    background: rgba(255,255,255,0.12); font-size: 14px; margin-top: 4px;
+  }
+</style>
+</head>
+<body>
+  <div class="topbar">
+    <a class="home" href="index.html" aria-label="Zurück zum Menü">‹</a>
+    <h1>Emoji Memory</h1>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="label">Paare</div><div class="value" id="pairs-stat">0/0</div></div>
+    <div class="stat"><div class="label">Züge</div><div class="value" id="moves-stat">0</div></div>
+    <div class="stat"><div class="label">Zeit</div><div class="value" id="time-stat">0:00</div></div>
+  </div>
+
+  <div id="board"></div>
+
+  <!-- Start -->
+  <div id="start" class="overlay">
+    <div class="title">Emoji Memory</div>
+    <div class="sub">Decke zwei gleiche Emojis auf und finde alle Paare mit möglichst wenig Zügen! 🧠</div>
+    <div class="diff-row" id="diff-row">
+      <button class="diff" data-pairs="6">Leicht<br><small>6 Paare</small></button>
+      <button class="diff active" data-pairs="8">Mittel<br><small>8 Paare</small></button>
+      <button class="diff" data-pairs="10">Schwer<br><small>10 Paare</small></button>
+      <button class="diff" data-pairs="12">Profi<br><small>12 Paare</small></button>
+    </div>
+    <div class="pill" id="best-pill">🏆 Bestzeit: –</div>
+    <button class="btn" id="play-btn">Spielen</button>
+  </div>
+
+  <!-- Win -->
+  <div id="win" class="overlay hidden">
+    <div class="title">Geschafft! 🎉</div>
+    <div class="sub" id="win-text">Du hast alle Paare gefunden!</div>
+    <div id="new-best" class="pill" style="display:none;">✨ Neue Bestzeit!</div>
+    <button class="btn" id="again-btn">Nochmal</button>
+  </div>
+
+<script>
+(() => {
+  const EMOJIS = ['🐶','🐱','🦊','🐼','🦁','🐸','🐵','🐧','🦄','🐢','🐙','🦋','🐝','🐬','🦉','🦕','🌵','🍄','🌸','🍎','🍔','🍕','🍩','🍓','⚽','🚀','🎈','🎸','⭐','🌈','🔥','💎'];
+
+  const board = document.getElementById('board');
+  const pairsStat = document.getElementById('pairs-stat');
+  const movesStat = document.getElementById('moves-stat');
+  const timeStat = document.getElementById('time-stat');
+  const startScreen = document.getElementById('start');
+  const winScreen = document.getElementById('win');
+  const playBtn = document.getElementById('play-btn');
+  const againBtn = document.getElementById('again-btn');
+  const diffRow = document.getElementById('diff-row');
+  const bestPill = document.getElementById('best-pill');
+  const winText = document.getElementById('win-text');
+  const newBestEl = document.getElementById('new-best');
+
+  let pairCount = 8;
+  let cards = [];          // {el, emoji, matched}
+  let first = null;        // first flipped card
+  let lock = false;        // input lock during compare
+  let moves = 0;
+  let matched = 0;
+  let timer = null, startT = 0, elapsed = 0;
+
+  function bestKey() { return 'memory_best_' + pairCount; }
+  function fmtTime(ms) {
+    const s = Math.floor(ms / 1000);
+    return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+  }
+  function loadBest() {
+    const raw = localStorage.getItem(bestKey());
+    if (!raw) { bestPill.textContent = '🏆 Bestzeit: –'; return null; }
+    const b = JSON.parse(raw);
+    bestPill.textContent = `🏆 Best: ${fmtTime(b.time)} · ${b.moves} Züge`;
+    return b;
+  }
+
+  function shuffle(a) {
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+
+  function gridColumns(n) {
+    // pick column count so the grid stays roughly square & phone-friendly
+    if (n <= 12) return 3;       // 6 pairs -> 12 cards -> 3x4
+    if (n <= 16) return 4;       // 8 pairs -> 16 -> 4x4
+    if (n <= 20) return 4;       // 10 pairs -> 20 -> 4x5
+    return 4;                    // 12 pairs -> 24 -> 4x6
+  }
+
+  function buildBoard() {
+    board.innerHTML = '';
+    cards = [];
+    first = null; lock = false; moves = 0; matched = 0;
+
+    const chosen = shuffle(EMOJIS.slice()).slice(0, pairCount);
+    const deck = shuffle(chosen.concat(chosen));
+
+    const cols = gridColumns(deck.length);
+    board.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+
+    deck.forEach((emoji) => {
+      const card = document.createElement('div');
+      card.className = 'card';
+      card.innerHTML = `<div class="face back">❓</div><div class="face front">${emoji}</div>`;
+      const obj = { el: card, emoji, matched: false };
+      card.addEventListener('click', () => onFlip(obj));
+      board.appendChild(card);
+      cards.push(obj);
+    });
+
+    pairsStat.textContent = `0/${pairCount}`;
+    movesStat.textContent = '0';
+    timeStat.textContent = '0:00';
+  }
+
+  function startTimer() {
+    startT = performance.now();
+    elapsed = 0;
+    clearInterval(timer);
+    timer = setInterval(() => {
+      elapsed = performance.now() - startT;
+      timeStat.textContent = fmtTime(elapsed);
+    }, 250);
+  }
+
+  function onFlip(obj) {
+    if (lock || obj.matched || obj === first) return;
+    if (obj.el.classList.contains('flipped')) return;
+    if (matched === 0 && first === null) startTimer(); // start clock on first flip
+
+    obj.el.classList.add('flipped');
+
+    if (!first) { first = obj; return; }
+
+    // second card
+    moves++;
+    movesStat.textContent = moves;
+
+    if (first.emoji === obj.emoji) {
+      first.matched = obj.matched = true;
+      first.el.classList.add('matched');
+      obj.el.classList.add('matched');
+      first = null;
+      matched++;
+      pairsStat.textContent = `${matched}/${pairCount}`;
+      if (navigator.vibrate) navigator.vibrate(20);
+      if (matched === pairCount) finish();
+    } else {
+      lock = true;
+      const a = first, b = obj;
+      first = null;
+      setTimeout(() => {
+        a.el.classList.remove('flipped');
+        b.el.classList.remove('flipped');
+        lock = false;
+      }, 750);
+    }
+  }
+
+  function finish() {
+    clearInterval(timer);
+    const finalTime = elapsed;
+    let isBest = false;
+    const prev = localStorage.getItem(bestKey());
+    if (!prev || finalTime < JSON.parse(prev).time) {
+      localStorage.setItem(bestKey(), JSON.stringify({ time: finalTime, moves }));
+      isBest = true;
+    }
+    if (navigator.vibrate) navigator.vibrate([60, 40, 60]);
+    winText.textContent = `${pairCount} Paare in ${fmtTime(finalTime)} mit ${moves} Zügen!`;
+    newBestEl.style.display = isBest ? 'inline-block' : 'none';
+    setTimeout(() => winScreen.classList.remove('hidden'), 500);
+  }
+
+  function startGame() {
+    clearInterval(timer);
+    buildBoard();
+    startScreen.classList.add('hidden');
+    winScreen.classList.add('hidden');
+  }
+
+  // Difficulty selection
+  diffRow.addEventListener('click', (e) => {
+    const btn = e.target.closest('.diff');
+    if (!btn) return;
+    pairCount = parseInt(btn.dataset.pairs, 10);
+    diffRow.querySelectorAll('.diff').forEach(b => b.classList.toggle('active', b === btn));
+    loadBest();
+  });
+
+  playBtn.addEventListener('click', startGame);
+  againBtn.addEventListener('click', () => { winScreen.classList.add('hidden'); startScreen.classList.remove('hidden'); loadBest(); });
+
+  loadBest();
+})();
+</script>
+</body>
+</html>
