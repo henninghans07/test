@@ -82,6 +82,74 @@
     font-size: 14px;
     margin-top: 4px;
   }
+  .btn.secondary {
+    background: rgba(255,255,255,0.14);
+    color: #fff;
+    box-shadow: none;
+    padding: 12px 28px;
+    font-size: clamp(15px, 4.5vw, 19px);
+  }
+  /* --- Settings panel --- */
+  .settings-box {
+    width: 100%;
+    max-width: 360px;
+    background: rgba(255,255,255,0.08);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 20px;
+    padding: 22px 22px 26px;
+    display: flex;
+    flex-direction: column;
+    gap: 22px;
+  }
+  .field { text-align: left; }
+  .field-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 10px;
+  }
+  .field-label { font-size: clamp(16px, 5vw, 20px); font-weight: 700; }
+  .field-value {
+    font-size: clamp(14px, 4vw, 17px);
+    font-weight: 700;
+    color: #ffd166;
+  }
+  .field-ends {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    opacity: 0.6;
+    margin-top: 6px;
+  }
+  input[type="range"] {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 100%;
+    height: 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,0.2);
+    outline: none;
+    touch-action: none;
+  }
+  input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ffd166, #ff9f43);
+    box-shadow: 0 3px 10px rgba(255,159,67,0.5);
+    cursor: pointer;
+  }
+  input[type="range"]::-moz-range-thumb {
+    width: 30px;
+    height: 30px;
+    border: none;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #ffd166, #ff9f43);
+    box-shadow: 0 3px 10px rgba(255,159,67,0.5);
+    cursor: pointer;
+  }
 </style>
 </head>
 <body>
@@ -93,6 +161,30 @@
     <div class="sub">Tippe auf den Bildschirm, damit die Rakete steigt.<br>Fliege durch die Lücken – nicht anstoßen! 🚀</div>
     <div class="pill">🏆 Highscore: <b id="hs-start">0</b></div>
     <button class="btn" id="play-btn">Spielen</button>
+    <button class="btn secondary" id="settings-btn">⚙️ Einstellungen</button>
+  </div>
+
+  <div id="settings" class="overlay hidden">
+    <div class="title" style="font-size:clamp(28px,9vw,48px)">Einstellungen</div>
+    <div class="settings-box">
+      <div class="field">
+        <div class="field-head">
+          <span class="field-label">🚀 Geschwindigkeit</span>
+          <span class="field-value" id="speed-val">Normal</span>
+        </div>
+        <input type="range" id="speed-slider" min="50" max="200" step="5" value="100">
+        <div class="field-ends"><span>Langsam</span><span>Schnell</span></div>
+      </div>
+      <div class="field">
+        <div class="field-head">
+          <span class="field-label">↕️ Lückengröße</span>
+          <span class="field-value" id="gap-val">Normal</span>
+        </div>
+        <input type="range" id="gap-slider" min="70" max="170" step="5" value="100">
+        <div class="field-ends"><span>Klein</span><span>Groß</span></div>
+      </div>
+    </div>
+    <button class="btn" id="settings-back">Fertig</button>
   </div>
 
   <div id="over" class="overlay hidden">
@@ -139,6 +231,69 @@
   let highscore = parseInt(localStorage.getItem(HS_KEY) || '0', 10) || 0;
   hsStartEl.textContent = highscore;
 
+  // --- Settings (speed & gap multipliers) ---
+  const SET_KEY = 'skyhopper_settings';
+  const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
+  let settings = { speed: 1, gap: 1 };
+  try {
+    const s = JSON.parse(localStorage.getItem(SET_KEY) || '{}');
+    if (typeof s.speed === 'number') settings.speed = clamp(s.speed, 0.5, 2);
+    if (typeof s.gap === 'number') settings.gap = clamp(s.gap, 0.7, 1.7);
+  } catch (e) { /* keep defaults */ }
+
+  const settingsScreen = document.getElementById('settings');
+  const settingsBtn = document.getElementById('settings-btn');
+  const settingsBack = document.getElementById('settings-back');
+  const speedSlider = document.getElementById('speed-slider');
+  const gapSlider = document.getElementById('gap-slider');
+  const speedValEl = document.getElementById('speed-val');
+  const gapValEl = document.getElementById('gap-val');
+
+  function labelFor(mult) {
+    if (mult <= 0.7) return 'Sehr langsam';
+    if (mult < 0.95) return 'Langsam';
+    if (mult <= 1.1) return 'Normal';
+    if (mult < 1.5) return 'Schnell';
+    return 'Sehr schnell';
+  }
+  function gapLabelFor(mult) {
+    if (mult <= 0.8) return 'Sehr klein';
+    if (mult < 0.95) return 'Klein';
+    if (mult <= 1.1) return 'Normal';
+    if (mult < 1.5) return 'Groß';
+    return 'Sehr groß';
+  }
+  function refreshSettingsUI() {
+    speedSlider.value = Math.round(settings.speed * 100);
+    gapSlider.value = Math.round(settings.gap * 100);
+    speedValEl.textContent = labelFor(settings.speed);
+    gapValEl.textContent = gapLabelFor(settings.gap);
+  }
+  function saveSettings() {
+    localStorage.setItem(SET_KEY, JSON.stringify(settings));
+  }
+  speedSlider.addEventListener('input', () => {
+    settings.speed = clamp(parseInt(speedSlider.value, 10) / 100, 0.5, 2);
+    speedValEl.textContent = labelFor(settings.speed);
+    saveSettings();
+  });
+  gapSlider.addEventListener('input', () => {
+    settings.gap = clamp(parseInt(gapSlider.value, 10) / 100, 0.7, 1.7);
+    gapValEl.textContent = gapLabelFor(settings.gap);
+    saveSettings();
+  });
+  settingsBtn.addEventListener('click', (e) => {
+    e.stopPropagation();
+    refreshSettingsUI();
+    startScreen.classList.add('hidden');
+    settingsScreen.classList.remove('hidden');
+  });
+  settingsBack.addEventListener('click', (e) => {
+    e.stopPropagation();
+    settingsScreen.classList.add('hidden');
+    startScreen.classList.remove('hidden');
+  });
+
   // --- Game state ---
   const STATE = { MENU: 0, PLAY: 1, OVER: 2 };
   let state = STATE.MENU;
@@ -151,13 +306,13 @@
 
   // tuned to be scaled by screen height so difficulty feels equal on all phones
   function cfg() {
-    const gap = Math.max(200, H * 0.36);
+    const gap = Math.max(150, H * 0.36 * settings.gap);
     return {
       gravity: H * 0.0014,
       flap: -H * 0.011,
       pipeW: Math.max(56, W * 0.16),
       gap,
-      speed: Math.max(2.4, W * 0.006),
+      speed: Math.max(2.4, W * 0.006) * settings.speed,
       spacing: Math.max(230, W * 0.62),
     };
   }
@@ -235,7 +390,7 @@
   window.addEventListener('keydown', (e) => {
     if (e.code === 'Space' || e.code === 'ArrowUp') {
       e.preventDefault();
-      if (state === STATE.MENU) startGame();
+      if (state === STATE.MENU && settingsScreen.classList.contains('hidden')) startGame();
       else if (state === STATE.PLAY) flap();
       else if (state === STATE.OVER) startGame();
     }
